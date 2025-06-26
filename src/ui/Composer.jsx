@@ -1,42 +1,36 @@
 // ─────────────────────────────────────────────
-// FINAL Composer – sends {payload:{…}} to match the function
+// FILE: src/ui/Composer.jsx
+// Drop-in replacement – sends {prompt:"…"}
 // ─────────────────────────────────────────────
 import React, { useEffect } from "react";
 import { useEmail } from "../store";
 
-/* ── helpers to build Gemini payloads ───── */
-const makePayload = (text, needJson = false) => {
-  const obj = {
-    contents: [{ role: "user", parts: [{ text }] }]
-  };
-  if (needJson) obj.generationConfig = { responseMimeType: "application/json" };
-  return obj;
-};
+/* ---------- prompt builders ---------- */
+const buildAnalysisPrompt = (email) => `
+Analyse the following email and return JSON exactly like:
+{"category":"<primary intent>","tone":"<suggested reply tone>"}
 
-const buildAnalysisPrompt = (e) => `
-Analyse the email below. Return: {"category":"…","tone":"…"}.
+Subject: ${email.subject}
 
-Subject: ${e.subject}
+${email.body}`.trim();
 
-${e.body}`.trim();
-
-const buildReplyPrompt = (e, a) => `
+const buildReplyPrompt = (email, analysis) => `
 Draft a concise reply.
 
-Intent: "${a.category}"
-Tone  : "${a.tone}"
-Start with "Hi ${e.sender.split("<")[0].trim()},"
+Intent  : "${analysis.category}"
+Tone    : "${analysis.tone}"
+Start with "Hi ${email.sender.split("<")[0].trim()},"
 
-Subject: ${e.subject}
+Subject: ${email.subject}
 
-${e.body}`.trim();
+${email.body}`.trim();
 
-/* ── call serverless function ──────────── */
-const callGemini = async (payload) =>
+/* ---------- helper: call serverless fn ---------- */
+const callGemini = async (prompt) =>
   fetch("/.netlify/functions/generate", {
     method : "POST",
     headers: { "Content-Type": "application/json" },
-    body   : JSON.stringify({ payload })      // <── sending payload field
+    body   : JSON.stringify({ prompt })       // <<< sends {prompt:"..."}
   })
     .then((r) => r.json())
     .then((j) => {
@@ -44,29 +38,44 @@ const callGemini = async (payload) =>
       return j;
     });
 
-/* ── main component ─────────────────────── */
+/* ---------- main component ---------- */
 function Composer() {
-  const { selectedEmail, aiAnalysis, replyDraft, isLoading, error, message, set } = useEmail();
+  const {
+    selectedEmail,
+    aiAnalysis,
+    replyDraft,
+    isLoading,
+    error,
+    message,
+    set
+  } = useEmail();
 
+  /* run AI when a new email is chosen */
   useEffect(() => {
     (async () => {
       if (!selectedEmail) return;
-      set({ isLoading: true, error: "", replyDraft: "", aiAnalysis: { category:"", tone:"" } });
+      set({
+        isLoading: true,
+        error: "",
+        replyDraft: "",
+        aiAnalysis: { category: "", tone: "" }
+      });
 
       try {
-        /* 1️⃣  analysis */
-        const analysisRes = await callGemini(
-          makePayload(buildAnalysisPrompt(selectedEmail), true)
-        );
-        const analysisText = analysisRes?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+        /* 1️⃣ analysis */
+        const analysisRes = await callGemini(buildAnalysisPrompt(selectedEmail));
+        const analysisText =
+          analysisRes?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
         const parsed = JSON.parse(analysisText);
         set({ aiAnalysis: parsed });
 
-        /* 2️⃣  reply */
+        /* 2️⃣ draft reply */
         const replyRes = await callGemini(
-          makePayload(buildReplyPrompt(selectedEmail, parsed))
+          buildReplyPrompt(selectedEmail, parsed)
         );
-        const draftText = replyRes?.candidates?.[0]?.content?.parts?.[0]?.text || "(No text returned)";
+        const draftText =
+          replyRes?.candidates?.[0]?.content?.parts?.[0]?.text ||
+          "(No text returned)";
         set({ replyDraft: draftText });
       } catch (err) {
         console.error(err);
@@ -81,14 +90,19 @@ function Composer() {
   const send = () => {
     console.log(`Simulated send:\n${replyDraft}`);
     set({ message: 'Reply "sent" (simulated)!', selectedEmail: null });
-    setTimeout(() => set({ message:"" }), 3000);
+    setTimeout(() => set({ message: "" }), 3000);
   };
 
   if (!selectedEmail) return null;
 
+  /* ---------- UI ---------- */
   return (
     <>
-      {error && <div className="bg-red-100 border border-red-400 text-red-700 px-3 py-2 rounded mb-4">{error}</div>}
+      {error && (
+        <div className="bg-red-100 border border-red-400 text-red-700 px-3 py-2 rounded mb-4">
+          {error}
+        </div>
+      )}
 
       <div className="flex items-center mb-4">
         <p className="font-semibold text-indigo-700 mr-4">AI Analysis:</p>
@@ -113,7 +127,11 @@ function Composer() {
         />
       )}
 
-      {message && <div className="bg-green-100 border border-green-400 text-green-700 px-3 py-2 rounded mt-4">{message}</div>}
+      {message && (
+        <div className="bg-green-100 border border-green-400 text-green-700 px-3 py-2 rounded mt-4">
+          {message}
+        </div>
+      )}
 
       <div className="mt-6 flex justify-end">
         <button
@@ -132,5 +150,4 @@ function Composer() {
   );
 }
 
-export default Composer;
-
+export default Composer;      // ← default export
