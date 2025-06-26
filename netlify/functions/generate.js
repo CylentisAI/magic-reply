@@ -1,16 +1,25 @@
-
 // ─────────────────────────────────────────────
 // FILE: netlify/functions/generate.js
-// Uses Node 18’s built-in global fetch (no node-fetch needed)
+// Works with Netlify’s “handler” style (no res.status)
 // ─────────────────────────────────────────────
-export default async (req, res) => {
+export default async (event /*, context */) => {
   try {
-    const { prompt } = JSON.parse(req.body || "{}");
+    /* 1️⃣  read incoming prompt */
+    const { prompt } = JSON.parse(event.body || "{}");
     const key = process.env.GEMINI_API_KEY;
 
-    if (!key)   return res.status(500).json({ error: "Missing GEMINI_API_KEY" });
-    if (!prompt) return res.status(400).json({ error: "Missing prompt" });
+    if (!key)
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: "Missing GEMINI_API_KEY" })
+      };
+    if (!prompt)
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "Missing prompt" })
+      };
 
+    /* 2️⃣  call Gemini */
     const url =
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" +
       key;
@@ -31,10 +40,18 @@ export default async (req, res) => {
     });
 
     const data = await g.json();
-    console.log("Gemini response:", JSON.stringify(data).slice(0, 400)); // shows up in Netlify logs
-    return res.status(g.status).json(data);
+
+    /* 3️⃣  little log for debugging */
+    console.log("Gemini response:", JSON.stringify(data).slice(0, 400));
+
+    /* 4️⃣  return to browser */
+    return {
+      statusCode: g.status,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data)
+    };
   } catch (e) {
     console.error(e);
-    return res.status(500).json({ error: e.message });
+    return { statusCode: 500, body: JSON.stringify({ error: e.message }) };
   }
 };
