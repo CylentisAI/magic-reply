@@ -1,30 +1,33 @@
 // ─────────────────────────────────────────────
 // FILE: netlify/functions/generate.js
-// Works with Netlify’s “handler” style (no res.status)
+// Compatible with Netlify Functions v4 (ESM + Response)
 // ─────────────────────────────────────────────
-export default async (event /*, context */) => {
+export default async (event) => {
   try {
-    /* 1️⃣  read incoming prompt */
-    const { prompt } = JSON.parse(event.body || "{}");
-    const key = process.env.GEMINI_API_KEY;
+    /* Netlify v4: event.body is already an object when
+       "Content-Type: application/json" is sent */
+    const bodyIn = typeof event.body === "string" ? JSON.parse(event.body) : event.body;
+    const prompt = bodyIn?.prompt;
+    const key    = process.env.GEMINI_API_KEY;
 
     if (!key)
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: "Missing GEMINI_API_KEY" })
-      };
-    if (!prompt)
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: "Missing prompt" })
-      };
+      return new Response(
+        JSON.stringify({ error: "Missing GEMINI_API_KEY" }),
+        { status: 500, headers: { "content-type": "application/json" } }
+      );
 
-    /* 2️⃣  call Gemini */
+    if (!prompt)
+      return new Response(
+        JSON.stringify({ error: "Missing prompt" }),
+        { status: 400, headers: { "content-type": "application/json" } }
+      );
+
+    /* call Gemini */
     const url =
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" +
       key;
 
-    const body = {
+    const payload = {
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       safetySettings: [
         { category: "HARM_CATEGORY_DANGEROUS",   threshold: "BLOCK_NONE" },
@@ -33,25 +36,24 @@ export default async (event /*, context */) => {
       ]
     };
 
-    const g = await fetch(url, {
-      method: "POST",
+    const gRes  = await fetch(url, {
+      method : "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
+      body   : JSON.stringify(payload)
     });
 
-    const data = await g.json();
+    const gText = await gRes.text();           // pass through as-is
+    console.log("Gemini:", gText.slice(0, 300));
 
-    /* 3️⃣  little log for debugging */
-    console.log("Gemini response:", JSON.stringify(data).slice(0, 400));
-
-    /* 4️⃣  return to browser */
-    return {
-      statusCode: g.status,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data)
-    };
+    return new Response(gText, {
+      status : gRes.status,
+      headers: { "content-type": "application/json" }
+    });
   } catch (e) {
     console.error(e);
-    return { statusCode: 500, body: JSON.stringify({ error: e.message }) };
+    return new Response(
+      JSON.stringify({ error: e.message }),
+      { status: 500, headers: { "content-type": "application/json" } }
+    );
   }
 };
