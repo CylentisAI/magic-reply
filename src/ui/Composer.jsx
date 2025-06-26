@@ -1,44 +1,39 @@
 // ─────────────────────────────────────────────
 // FILE: src/ui/Composer.jsx
-// Drop-in replacement – sends {prompt:"…"}
+// Sends prompt via GET query-string  …/generate?prompt=
 // ─────────────────────────────────────────────
 import React, { useEffect } from "react";
 import { useEmail } from "../store";
 
-/* ---------- prompt builders ---------- */
-const buildAnalysisPrompt = (email) => `
-Analyse the following email and return JSON exactly like:
-{"category":"<primary intent>","tone":"<suggested reply tone>"}
+/* ── prompt builders ────────────────────── */
+const buildAnalysisPrompt = (e) => `
+Analyse the email. Return JSON {"category":"…","tone":"…"}.
 
-Subject: ${email.subject}
+Subject: ${e.subject}
 
-${email.body}`.trim();
+${e.body}`.trim();
 
-const buildReplyPrompt = (email, analysis) => `
+const buildReplyPrompt = (e, a) => `
 Draft a concise reply.
 
-Intent  : "${analysis.category}"
-Tone    : "${analysis.tone}"
-Start with "Hi ${email.sender.split("<")[0].trim()},"
+Intent : "${a.category}"
+Tone   : "${a.tone}"
+Start with "Hi ${e.sender.split("<")[0].trim()},"
 
-Subject: ${email.subject}
+Subject: ${e.subject}
 
-${email.body}`.trim();
+${e.body}`.trim();
 
-/* ---------- helper: call serverless fn ---------- */
-const callGemini = async (prompt) =>
-  fetch("/.netlify/functions/generate", {
-    method : "POST",
-    headers: { "Content-Type": "application/json" },
-    body   : JSON.stringify({ prompt })       // <<< sends {prompt:"..."}
-  })
-    .then((r) => r.json())
-    .then((j) => {
-      console.log("GeminiBack", j);
-      return j;
-    });
+/* ── call Gemini via GET ─────────────────── */
+const callGemini = async (prompt) => {
+  const url =
+    "/.netlify/functions/generate?prompt=" +
+    encodeURIComponent(prompt.slice(0, 7800)); // stay under URL limit
+  const res = await fetch(url);
+  return res.json();
+};
 
-/* ---------- main component ---------- */
+/* ── main component ──────────────────────── */
 function Composer() {
   const {
     selectedEmail,
@@ -50,16 +45,10 @@ function Composer() {
     set
   } = useEmail();
 
-  /* run AI when a new email is chosen */
   useEffect(() => {
     (async () => {
       if (!selectedEmail) return;
-      set({
-        isLoading: true,
-        error: "",
-        replyDraft: "",
-        aiAnalysis: { category: "", tone: "" }
-      });
+      set({ isLoading: true, error: "", replyDraft: "", aiAnalysis: { category:"", tone:"" } });
 
       try {
         /* 1️⃣ analysis */
@@ -69,33 +58,28 @@ function Composer() {
         const parsed = JSON.parse(analysisText);
         set({ aiAnalysis: parsed });
 
-        /* 2️⃣ draft reply */
-        const replyRes = await callGemini(
-          buildReplyPrompt(selectedEmail, parsed)
-        );
+        /* 2️⃣ reply */
+        const replyRes = await callGemini(buildReplyPrompt(selectedEmail, parsed));
         const draftText =
-          replyRes?.candidates?.[0]?.content?.parts?.[0]?.text ||
-          "(No text returned)";
+          replyRes?.candidates?.[0]?.content?.parts?.[0]?.text || "(No text returned)";
         set({ replyDraft: draftText });
       } catch (err) {
         console.error(err);
         set({ error: "AI error — try again." });
       } finally {
-        set({ isLoading: false });
+        set({ isLoading:false });
       }
     })();
   }, [selectedEmail]);
 
-  /* simulate send */
   const send = () => {
     console.log(`Simulated send:\n${replyDraft}`);
-    set({ message: 'Reply "sent" (simulated)!', selectedEmail: null });
-    setTimeout(() => set({ message: "" }), 3000);
+    set({ message:'Reply "sent" (simulated)!', selectedEmail:null });
+    setTimeout(() => set({ message:"" }), 3000);
   };
 
   if (!selectedEmail) return null;
 
-  /* ---------- UI ---------- */
   return (
     <>
       {error && (
@@ -123,7 +107,7 @@ function Composer() {
         <textarea
           className="w-full p-4 border rounded min-h-[150px] resize-y focus:ring-indigo-500"
           value={replyDraft}
-          onChange={(e) => set({ replyDraft: e.target.value })}
+          onChange={(e) => set({ replyDraft:e.target.value })}
         />
       )}
 
@@ -150,4 +134,4 @@ function Composer() {
   );
 }
 
-export default Composer;      // ← default export
+export default Composer;
